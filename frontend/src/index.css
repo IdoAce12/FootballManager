@@ -1,0 +1,196 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    color-scheme: dark;
+  }
+
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+
+  body {
+    @apply bg-slate-950 text-slate-200 font-sans antialiased;
+    background-image:
+      radial-gradient(circle at 15% -10%, rgba(8, 145, 178, 0.12), transparent 45%),
+      radial-gradient(circle at 90% 0%, rgba(16, 185, 129, 0.08), transparent 40%);
+    background-attachment: fixed;
+  }
+}
+
+@layer components {
+  .panel {
+    @apply rounded-2xl border border-slate-800/80 bg-slate-900/60 backdrop-blur-sm shadow-xl;
+  }
+
+  .panel-glow {
+    @apply panel relative overflow-hidden;
+    box-shadow:
+      0 0 0 1px rgba(34, 211, 238, 0.12),
+      0 0 32px -12px rgba(16, 185, 129, 0.35);
+  }
+
+  .neon-border-cyan {
+    box-shadow:
+      0 0 0 1px rgba(34, 211, 238, 0.35),
+      0 0 24px -6px rgba(34, 211, 238, 0.45);
+  }
+
+  .neon-border-amber {
+    box-shadow:
+      0 0 0 1px rgba(251, 191, 36, 0.4),
+      0 0 28px -6px rgba(245, 158, 11, 0.5);
+  }
+
+  .match-reward-badge {
+    @apply relative overflow-hidden rounded-xl border border-emerald-400/50 bg-emerald-500/15 px-4 py-3 text-center;
+    box-shadow: 0 0 28px -4px rgba(52, 211, 153, 0.65);
+    animation: reward-glow 2s ease-in-out infinite;
+  }
+
+  .pitch-node-glow {
+    box-shadow:
+      0 0 0 1px rgba(52, 211, 153, 0.25),
+      0 0 18px -4px rgba(34, 211, 238, 0.35);
+  }
+
+  .panel-header {
+    @apply flex items-center justify-between border-b border-slate-800/80 px-5 py-3.5;
+  }
+
+  .stat-pill {
+    @apply rounded-xl border border-slate-800 bg-slate-900/70 px-4 py-2.5;
+  }
+
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2 text-sm font-semibold
+      transition-all duration-150 focus:outline-none focus:ring-2 focus:ring-offset-2
+      focus:ring-offset-slate-950 disabled:cursor-not-allowed disabled:opacity-50;
+  }
+
+  .btn-sign {
+    @apply bg-cyan-500/90 text-slate-950 hover:bg-cyan-400 focus:ring-cyan-400
+      shadow-[0_0_18px_-6px_rgba(34,211,238,0.8)];
+  }
+
+  .btn-launch {
+    @apply bg-emerald-500 text-slate-950 hover:bg-emerald-400 focus:ring-emerald-400
+      shadow-glow-emerald;
+  }
+
+  .table-row {
+    @apply border-b border-slate-800/60 transition-colors hover:bg-slate-800/40;
+  }
+
+  .filter-input {
+    @apply w-full rounded-lg border border-slate-700 bg-slate-950/60 px-3 py-2 text-sm
+      text-slate-100 placeholder:text-slate-600 focus:border-cyan-500 focus:outline-none
+      focus:ring-1 focus:ring-cyan-500;
+  }
+
+  .onboarding-input {
+    @apply w-full rounded-xl border border-slate-700 bg-slate-950/60 px-4 py-3 text-sm
+      text-slate-100 placeholder:text-slate-600 transition-colors focus:border-cyan-500
+      focus:outline-none focus:ring-1 focus:ring-cyan-500 disabled:cursor-not-allowed
+      disabled:opacity-50;
+  }
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-track {
+  background: rgba(15, 23, 42, 0.4);
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(51, 65, 85, 0.8);
+  border-radius: 9999px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(34, 211, 238, 0.6);
+  background-clip: content-box;
+}
+
+@keyframes reward-glow {
+  0%,
+  100% {
+    box-shadow: 0 0 20px -4px rgba(52, 211, 153, 0.5);
+  }
+  50% {
+    box-shadow: 0 0 36px -2px rgba(52, 211, 153, 0.85);
+  }
+}
+
+@keyframes goal-shake {
+  0%,
+  100% {
+    transform: translateX(0);
+  }
+  20% {
+    transform: translateX(-4px);
+  }
+  40% {
+    transform: translateX(4px);
+  }
+  60% {
+    transform: translateX(-3px);
+  }
+  80% {
+    transform: translateX(3px);
+  }
+}
+
+@keyframes score-flash {
+  0%,
+  100% {
+    filter: brightness(1);
+  }
+  50% {
+    filter: brightness(1.45);
+  }
+}
+
+.animate-goal-shake {
+  animation: goal-shake 0.45s ease-in-out;
+}
+
+.animate-score-flash {
+  animation: score-flash 0.6s ease-out;
+}
+
+@keyframes confetti-fall {
+  0% {
+    transform: translateY(-10vh) rotate(0deg);
+    opacity: 1;
+  }
+  100% {
+    transform: translateY(110vh) rotate(720deg);
+    opacity: 0.3;
+  }
+}
+
+.confetti-piece {
+  animation: confetti-fall 3.2s ease-in forwards;
+}
+
+@keyframes trophy-pulse {
+  0%,
+  100% {
+    filter: drop-shadow(0 0 8px rgba(251, 191, 36, 0.5));
+  }
+  50% {
+    filter: drop-shadow(0 0 18px rgba(251, 191, 36, 0.95));
+  }
+}
+
+.trophy-glow {
+  animation: trophy-pulse 2.4s ease-in-out infinite;
+}

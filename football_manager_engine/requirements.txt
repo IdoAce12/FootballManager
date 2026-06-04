@@ -1,0 +1,17 @@
+# FC26 Football Manager Engine
+# -----------------------------
+# The engine is intentionally built on the Python Standard Library ONLY
+# (csv, dataclasses, enum, random, concurrent.futures, typing) so it runs
+# anywhere with zero install friction and scales to the full 18,000+ player
+# dataset.
+#
+# Required runtime:
+#   Python >= 3.10   (uses dataclass slots=True, PEP 604 unions, set[int] hints)
+#
+# The simulation engine itself has no third-party dependencies.
+#
+# The OPTIONAL web API layer (api.py) requires FastAPI + an ASGI server.
+# Install these only if you intend to serve the REST API to the React frontend:
+
+fastapi>=0.110
+uvicorn[standard]>=0.27
