@@ -58,13 +58,33 @@ def _default_csv_path() -> str:
     return os.path.join(os.path.dirname(here), "FC26_20250921.csv")
 
 
-#: CORS origins for the React dev servers (Vite + CRA, loopback + localhost).
+#: Explicit CORS origins (local dev + optional extras via FM_CORS_ORIGINS).
 ALLOWED_ORIGINS: List[str] = [
     "http://localhost:5173",
     "http://127.0.0.1:5173",
     "http://localhost:3000",
     "http://127.0.0.1:3000",
 ]
+
+# Matches any Vercel deployment (production + preview): https://<project>.vercel.app
+VERCEL_ORIGIN_REGEX = r"https://.*\.vercel\.app"
+LOCAL_DEV_ORIGIN_REGEX = r"http://(localhost|127\.0\.0\.1)(:\d+)?"
+
+
+def _resolved_cors_origins() -> List[str]:
+    """Base allowlist plus comma-separated FM_CORS_ORIGINS (e.g. custom Vercel URL)."""
+    origins = list(ALLOWED_ORIGINS)
+    extra = os.environ.get("FM_CORS_ORIGINS", "")
+    for item in extra.split(","):
+        origin = item.strip()
+        if origin and origin not in origins:
+            origins.append(origin)
+    return origins
+
+
+def _cors_allow_all() -> bool:
+    """FM_CORS_ALLOW_ALL=true → allow_origins=['*'] (credentials must be False)."""
+    return os.environ.get("FM_CORS_ALLOW_ALL", "").lower() in ("1", "true", "yes")
 
 
 # ===========================================================================
@@ -157,14 +177,27 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=ALLOWED_ORIGINS,
-    allow_origin_regex=r"http://(localhost|127\.0\.0\.1):\d+",
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+# CORS: Vercel + local dev by default. Browsers forbid allow_origins=["*"] together with
+# allow_credentials=True — set FM_CORS_ALLOW_ALL=true only if you do not need credentials.
+if _cors_allow_all():
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["*"],
+        allow_credentials=False,
+        allow_methods=["*"],
+        allow_headers=["*"],
+        expose_headers=["*"],
+    )
+else:
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=_resolved_cors_origins(),
+        allow_origin_regex=f"{VERCEL_ORIGIN_REGEX}|{LOCAL_DEV_ORIGIN_REGEX}",
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+        expose_headers=["*"],
+    )
 
 
 # ===========================================================================
