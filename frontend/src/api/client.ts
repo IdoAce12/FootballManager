@@ -30,8 +30,25 @@ import type {
   WonderkidResponse,
 } from '@/api/types';
 
-export const API_BASE_URL: string =
-  import.meta.env.VITE_API_URL?.replace(/\/$/, '') ?? 'http://localhost:8000';
+const LOCAL_DEV_API_URL = 'http://localhost:8000';
+
+/**
+ * Resolve the FastAPI base URL:
+ * - Production / Vercel: `VITE_API_URL` must be set at build time.
+ * - Local dev: falls back to localhost:8000 when the env var is omitted.
+ */
+export function resolveApiBaseUrl(): string {
+  const configured = import.meta.env.VITE_API_URL?.trim();
+  if (configured) {
+    return configured.replace(/\/$/, '');
+  }
+  if (import.meta.env.DEV) {
+    return LOCAL_DEV_API_URL;
+  }
+  return '';
+}
+
+export const API_BASE_URL: string = resolveApiBaseUrl();
 
 const http: AxiosInstance = axios.create({
   baseURL: API_BASE_URL,
@@ -61,7 +78,9 @@ function normaliseError(error: unknown): ApiError {
     } else if (Array.isArray(detail) && detail.length > 0 && detail[0]?.msg) {
       message = detail[0].msg as string;
     } else if (status === 0) {
-      message = 'Cannot reach the backend. Is the API server running on :8000?';
+      message = API_BASE_URL
+        ? `Cannot reach the backend at ${API_BASE_URL}. Check that the API is running and CORS allows this origin.`
+        : 'Backend URL is not configured. Set VITE_API_URL in Vercel (or frontend/.env for local builds).';
     } else {
       message = axErr.message;
     }

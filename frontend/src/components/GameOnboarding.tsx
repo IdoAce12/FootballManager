@@ -8,7 +8,7 @@
  */
 
 import { useEffect, useState, type ReactNode } from 'react';
-import { ApiError, gameApi } from '@/api/client';
+import { API_BASE_URL, ApiError, gameApi } from '@/api/client';
 import type { ClubOption, LeagueOption } from '@/api/types';
 import { ratingTextColor } from '@/lib/format';
 import { useGame } from '@/state/GameContext';
@@ -44,7 +44,9 @@ export function GameOnboarding() {
           setError(
             err instanceof ApiError
               ? err.message
-              : 'Could not load leagues. Is the backend running on :8000?',
+              : API_BASE_URL
+                ? `Could not load leagues. Is the backend running at ${API_BASE_URL}?`
+                : 'Could not load leagues. Set VITE_API_URL to your deployed API URL.',
           );
         }
       })
