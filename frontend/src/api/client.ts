@@ -14,6 +14,7 @@ import type {
   ClubOption,
   LeagueOption,
   ConfirmMatchdayResponse,
+  ContinentalCupResponse,
   LineupUpdateRequest,
   NextSeasonResponse,
   SellRequest,
@@ -138,6 +139,15 @@ export const gameApi = {
   async getStatus(): Promise<StatusResponse> {
     try {
       const { data } = await http.get<StatusResponse>('/api/status');
+      return data;
+    } catch (error) {
+      throw normaliseError(error);
+    }
+  },
+
+  async getContinentalCup(): Promise<ContinentalCupResponse> {
+    try {
+      const { data } = await http.get<ContinentalCupResponse>('/api/continental');
       return data;
     } catch (error) {
       throw normaliseError(error);

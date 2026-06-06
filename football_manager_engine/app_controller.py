@@ -49,6 +49,16 @@ from career_progression import (
     resolve_promotion_league,
     season_status_label,
 )
+from continental_cup import (
+    CONTINENTAL_CUP_NAME,
+    ContinentalCup,
+    ContinentalFixture,
+    build_continental_cup,
+    continental_cash_reward,
+    continental_round_for_league_matchday,
+    qualify_clubs_from_leagues,
+    snapshot_league_standings,
+)
 from match_simulation_engine import MatchEngine, MatchResult
 from transfer_market import TransferMarket, TransferOffer
 
@@ -62,6 +72,9 @@ class PendingMatchday:
     league_id: int
     matchday: int
     pairs: List[Tuple[Fixture, MatchResult]]
+    continental_pairs: List[Tuple[ContinentalFixture, MatchResult]] = field(
+        default_factory=list
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -100,6 +113,7 @@ class AppController:
     pending_matchday: Optional[PendingMatchday] = None
     manager_name: Optional[str] = None
     career_history: List[CareerSeasonRecord] = field(default_factory=list)
+    continental_cup: Optional[ContinentalCup] = None
 
     def __post_init__(self) -> None:
         self._rng = random.Random(self.seed)
@@ -115,6 +129,52 @@ class AppController:
 
     def select_club(self, club: Club) -> None:
         self.managed_club = club
+
+    def initialize_continental_cup(
+        self,
+        standings_snapshot: Optional[Dict[int, List]] = None,
+    ) -> None:
+        """Seed or refresh the European Champions Cup for the active season."""
+        qualified = qualify_clubs_from_leagues(self.state, standings_snapshot)
+        self.continental_cup = build_continental_cup(
+            qualified,
+            self.state.clubs,
+            self.season_year,
+        )
+
+    def _simulate_continental_round(
+        self,
+        league_matchday: int,
+        commentary_club_id: Optional[int] = None,
+    ) -> List[Tuple[ContinentalFixture, MatchResult]]:
+        """Preview continental fixtures tied to the given domestic matchday."""
+        cup = self.continental_cup
+        if cup is None or not cup.active:
+            return []
+
+        continental_md = continental_round_for_league_matchday(league_matchday)
+        if continental_md is None:
+            return []
+
+        fixtures = cup.fixtures_for_matchday(continental_md)
+        if not fixtures:
+            return []
+
+        pairs: List[Tuple[ContinentalFixture, MatchResult]] = []
+        for fixture in fixtures:
+            engine = MatchEngine(seed=self._rng.randint(1, 2_000_000_000))
+            home = self.state.clubs[fixture.home_id]
+            away = self.state.clubs[fixture.away_id]
+            want_commentary = commentary_club_id in (fixture.home_id, fixture.away_id)
+            result = engine.simulate(
+                home,
+                away,
+                current_match_index=self.global_match_index,
+                collect_commentary=want_commentary,
+                persist_state=False,
+            )
+            pairs.append((fixture, result))
+        return pairs
 
     # ------------------------------------------------------------------ #
     # Concurrent matchday simulation
@@ -149,7 +209,16 @@ class AppController:
         with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
             pairs = list(executor.map(worker, fixtures))
 
-        pending = PendingMatchday(league_id=league.league_id, matchday=next_md, pairs=pairs)
+        continental_pairs = self._simulate_continental_round(
+            next_md, commentary_club_id=commentary_club_id
+        )
+
+        pending = PendingMatchday(
+            league_id=league.league_id,
+            matchday=next_md,
+            pairs=pairs,
+            continental_pairs=continental_pairs,
+        )
         self.pending_matchday = pending
         return pending
 
@@ -211,17 +280,44 @@ class AppController:
             )
             results.append(result)
 
+        continental_results: List[MatchResult] = []
+        cup = self.continental_cup
+        if cup is not None and pending.continental_pairs:
+            continental_md = continental_round_for_league_matchday(pending.matchday)
+            for fixture, result in pending.continental_pairs:
+                cup.record_result(fixture, result.home_goals, result.away_goals)
+                home = self.state.clubs[fixture.home_id]
+                away = self.state.clubs[fixture.away_id]
+                commit_engine.commit_match_result(
+                    home, away, result, self.global_match_index
+                )
+                continental_results.append(result)
+            if continental_md is not None:
+                cup.current_matchday = continental_md
+                if cup.phase == "group" and continental_md >= 3:
+                    cup.advance_knockout(self.state.clubs)
+                if cup.phase == "knockout":
+                    cup.resolve_knockout_round(continental_md, self.state.clubs)
+
         league.current_matchday = pending.matchday
         self.global_match_index += 1
         self.pending_matchday = None
         self._recover_league(league)
 
         reward_amount, reward_outcome, reward_label = 0.0, "none", format_money(0)
+        continental_reward_amount = 0.0
+        continental_reward_outcome = "none"
+        continental_reward_label = format_money(0)
         if club is not None:
             reward_amount, reward_outcome, reward_label = self.matchday_cash_reward(
                 club, results
             )
-            club.transfer_budget = round(club.transfer_budget + reward_amount, 2)
+            if continental_results:
+                continental_reward_amount, continental_reward_outcome, continental_reward_label = (
+                    continental_cash_reward(club.club_id, continental_results)
+                )
+            total_reward = reward_amount + continental_reward_amount
+            club.transfer_budget = round(club.transfer_budget + total_reward, 2)
 
         incoming_bid_dict: Optional[Dict[str, object]] = None
         if club is not None:
@@ -244,6 +340,10 @@ class AppController:
             "match_reward": reward_amount,
             "match_reward_label": reward_label,
             "match_reward_outcome": reward_outcome,
+            "continental_match_reward": continental_reward_amount,
+            "continental_match_reward_label": continental_reward_label,
+            "continental_match_reward_outcome": continental_reward_outcome,
+            "continental_match_played": bool(continental_results),
             "transfer_budget": round(club.transfer_budget, 2) if club else 0.0,
             "transfer_budget_label": format_money(club.transfer_budget) if club else "€0",
             "incoming_bid": incoming_bid_dict,
@@ -369,7 +469,9 @@ class AppController:
         club.transfer_budget = round(club.transfer_budget + bonus, 2)
         club.ensure_valid_lineup()
 
+        qualification_snapshot = snapshot_league_standings(self.state)
         self.start_new_season()
+        self.initialize_continental_cup(qualification_snapshot)
         league = self.managed_league or league
         if league is not None:
             league.generate_fixtures()
@@ -394,6 +496,11 @@ class AppController:
             "matchday_win_reward": win_rate,
             "matchday_draw_reward": draw_rate,
             "season_status": status,
+            "continental_cup_name": CONTINENTAL_CUP_NAME,
+            "continental_qualified": bool(
+                self.continental_cup
+                and club.club_id in self.continental_cup.qualified_ids
+            ),
         }
 
     def accept_incoming_bid(self, club: Club, player_id: int, fee: float) -> Dict[str, object]:

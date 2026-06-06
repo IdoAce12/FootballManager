@@ -36,6 +36,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
 from app_controller import AppController, bootstrap, format_money
+from continental_cup import CONTINENTAL_CUP_NAME, CONTINENTAL_LEAGUE_ANCHORS
 from domain_models import Club, League, Player
 from match_simulation_engine import MatchEvent, MatchResult
 
@@ -234,6 +235,7 @@ class LineupSlotModel(BaseModel):
     player_id: Optional[int]
     player_name: Optional[str]
     overall: Optional[int]
+    potential: Optional[int] = None
 
 
 class SquadResponse(BaseModel):
@@ -303,9 +305,73 @@ class ConfirmMatchdayResponse(BaseModel):
     match_reward: float = 0
     match_reward_label: str = "€0"
     match_reward_outcome: str = "none"
+    continental_match_played: bool = False
+    continental_match_reward: float = 0
+    continental_match_reward_label: str = "€0"
+    continental_match_reward_outcome: str = "none"
     transfer_budget: float = 0
     transfer_budget_label: str = "€0"
     incoming_bid: Optional[IncomingTransferBidModel] = None
+
+
+class ContinentalFixtureModel(BaseModel):
+    matchday: int
+    league_matchday: Optional[int] = None
+    home_id: int
+    home_name: str
+    away_id: int
+    away_name: str
+    stage: str
+    group_name: Optional[str] = None
+    home_goals: Optional[int] = None
+    away_goals: Optional[int] = None
+    is_played: bool
+
+
+class ContinentalGroupStandingRow(BaseModel):
+    position: int
+    club_id: int
+    club_name: str
+    played: int
+    won: int
+    drawn: int
+    lost: int
+    goal_difference: int
+    points: int
+
+
+class ContinentalGroupModel(BaseModel):
+    group_name: str
+    standings: List[ContinentalGroupStandingRow]
+
+
+class ContinentalBracketMatchModel(BaseModel):
+    matchday: int
+    stage: str
+    home_id: int
+    home_name: str
+    away_id: int
+    away_name: str
+    home_goals: Optional[int] = None
+    away_goals: Optional[int] = None
+    winner_id: Optional[int] = None
+    winner_name: Optional[str] = None
+
+
+class ContinentalCupResponse(BaseModel):
+    name: str
+    season_year: int
+    active: bool
+    phase: str
+    qualified: bool
+    current_matchday: int
+    total_matchdays: int
+    champion_club_id: Optional[int] = None
+    champion_club_name: Optional[str] = None
+    groups: List[ContinentalGroupModel]
+    fixtures: List[ContinentalFixtureModel]
+    bracket: List[ContinentalBracketMatchModel]
+    schedule_anchors: List[int]
 
 
 class SellRequest(BaseModel):
@@ -636,6 +702,7 @@ def root() -> dict:
             "/api/transfers/sell",
             "/api/game/next-season",
             "/api/matchday/simulate",
+            "/api/continental",
         ],
     }
 
@@ -755,6 +822,7 @@ def setup_game(
     fresh.select_league(league)   # ensures fixtures exist
     fresh.select_club(club)
     fresh.manager_name = payload.manager_name.strip()
+    fresh.initialize_continental_cup()
 
     _CONTEXT = GameContext(
         controller=fresh,
@@ -818,6 +886,7 @@ def _serialize_lineup(club: Club) -> List[LineupSlotModel]:
                     player_id=slot.player.player_id,
                     player_name=slot.player.short_name,
                     overall=slot.player.overall,
+                    potential=slot.player.potential,
                 )
             )
         else:
@@ -830,9 +899,127 @@ def _serialize_lineup(club: Club) -> List[LineupSlotModel]:
                     player_id=pid,
                     player_name=player.short_name if player else None,
                     overall=player.overall if player else None,
+                    potential=player.potential if player else None,
                 )
             )
     return slots
+
+
+def _league_matchday_for_continental(continental_matchday: int) -> Optional[int]:
+    if 1 <= continental_matchday <= len(CONTINENTAL_LEAGUE_ANCHORS):
+        return CONTINENTAL_LEAGUE_ANCHORS[continental_matchday - 1]
+    return None
+
+
+def _serialize_continental_cup(ctx: GameContext) -> ContinentalCupResponse:
+    controller = ctx.controller
+    club = ctx.club
+    cup = controller.continental_cup
+    if cup is None:
+        return ContinentalCupResponse(
+            name=CONTINENTAL_CUP_NAME,
+            season_year=controller.season_year,
+            active=False,
+            phase="inactive",
+            qualified=False,
+            current_matchday=0,
+            total_matchdays=0,
+            groups=[],
+            fixtures=[],
+            bracket=[],
+            schedule_anchors=list(CONTINENTAL_LEAGUE_ANCHORS),
+        )
+
+    clubs = controller.state.clubs
+    groups: List[ContinentalGroupModel] = []
+    for group_name, rows in cup.all_group_standings().items():
+        groups.append(
+            ContinentalGroupModel(
+                group_name=group_name,
+                standings=[
+                    ContinentalGroupStandingRow(
+                        position=index,
+                        club_id=row.club_id,
+                        club_name=row.club_name,
+                        played=row.played,
+                        won=row.won,
+                        drawn=row.drawn,
+                        lost=row.lost,
+                        goal_difference=row.goal_difference,
+                        points=row.points,
+                    )
+                    for index, row in enumerate(rows, start=1)
+                ],
+            )
+        )
+
+    fixtures: List[ContinentalFixtureModel] = []
+    bracket: List[ContinentalBracketMatchModel] = []
+    for fixture in sorted(cup.fixtures, key=lambda item: (item.matchday, item.stage, item.group_name or "")):
+        home = clubs.get(fixture.home_id)
+        away = clubs.get(fixture.away_id)
+        payload = ContinentalFixtureModel(
+            matchday=fixture.matchday,
+            league_matchday=_league_matchday_for_continental(fixture.matchday),
+            home_id=fixture.home_id,
+            home_name=home.name if home else "Unknown",
+            away_id=fixture.away_id,
+            away_name=away.name if away else "Unknown",
+            stage=fixture.stage,
+            group_name=fixture.group_name,
+            home_goals=fixture.home_goals,
+            away_goals=fixture.away_goals,
+            is_played=fixture.is_played,
+        )
+        fixtures.append(payload)
+        if fixture.stage != "group":
+            winner_id = None
+            winner_name = None
+            if fixture.is_played and fixture.home_goals is not None and fixture.away_goals is not None:
+                winner_id = (
+                    fixture.home_id
+                    if fixture.home_goals >= fixture.away_goals
+                    else fixture.away_id
+                )
+                winner = clubs.get(winner_id)
+                winner_name = winner.name if winner else None
+            bracket.append(
+                ContinentalBracketMatchModel(
+                    matchday=fixture.matchday,
+                    stage=fixture.stage,
+                    home_id=fixture.home_id,
+                    home_name=home.name if home else "Unknown",
+                    away_id=fixture.away_id,
+                    away_name=away.name if away else "Unknown",
+                    home_goals=fixture.home_goals,
+                    away_goals=fixture.away_goals,
+                    winner_id=winner_id,
+                    winner_name=winner_name,
+                )
+            )
+
+    champion = clubs.get(cup.champion_club_id) if cup.champion_club_id else None
+    return ContinentalCupResponse(
+        name=CONTINENTAL_CUP_NAME,
+        season_year=cup.season_year,
+        active=cup.active,
+        phase=cup.phase,
+        qualified=club.club_id in cup.qualified_ids,
+        current_matchday=cup.current_matchday,
+        total_matchdays=cup.total_matchdays,
+        champion_club_id=cup.champion_club_id,
+        champion_club_name=champion.name if champion else None,
+        groups=groups,
+        fixtures=fixtures,
+        bracket=bracket,
+        schedule_anchors=list(CONTINENTAL_LEAGUE_ANCHORS),
+    )
+
+
+@app.get("/api/continental", response_model=ContinentalCupResponse, tags=["game"])
+def get_continental_cup(ctx: GameContext = Depends(get_context)) -> ContinentalCupResponse:
+    """European Champions Cup standings, bracket and scheduled matchdays."""
+    return _serialize_continental_cup(ctx)
 
 
 @app.get("/api/squad", response_model=SquadResponse, tags=["game"])
@@ -1250,6 +1437,14 @@ def confirm_matchday(ctx: GameContext = Depends(get_context)) -> ConfirmMatchday
         match_reward=float(reward["match_reward"]),
         match_reward_label=str(reward["match_reward_label"]),
         match_reward_outcome=str(reward["match_reward_outcome"]),
+        continental_match_played=bool(reward.get("continental_match_played")),
+        continental_match_reward=float(reward.get("continental_match_reward", 0)),
+        continental_match_reward_label=str(
+            reward.get("continental_match_reward_label", format_money(0))
+        ),
+        continental_match_reward_outcome=str(
+            reward.get("continental_match_reward_outcome", "none")
+        ),
         transfer_budget=float(reward["transfer_budget"]),
         transfer_budget_label=str(reward["transfer_budget_label"]),
         incoming_bid=incoming_bid,

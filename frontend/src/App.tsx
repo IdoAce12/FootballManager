@@ -10,16 +10,18 @@ import { GameOnboarding } from '@/components/GameOnboarding';
 import { IncomingBidModal } from '@/components/IncomingBidModal';
 import { MatchSimTerminal } from '@/components/MatchSimTerminal';
 import { ScoutingHub } from '@/components/ScoutingHub';
+import { ContinentalCupView } from '@/components/ContinentalCupView';
 import { TacticalPitch } from '@/components/TacticalPitch';
 import { TrophyRoom } from '@/components/TrophyRoom';
 import { useGame } from '@/state/GameContext';
 
-type TabId = 'squad' | 'scouting' | 'match' | 'trophy';
+type TabId = 'squad' | 'scouting' | 'match' | 'continental' | 'trophy';
 
 const TABS: { id: TabId; label: string; icon: string }[] = [
   { id: 'squad', label: 'Squad', icon: '👥' },
   { id: 'scouting', label: 'Scouting Hub', icon: '🔍' },
   { id: 'match', label: 'Match Day', icon: '⚽' },
+  { id: 'continental', label: 'Champions Cup', icon: '🏅' },
   { id: 'trophy', label: 'Trophy Room', icon: '🏆' },
 ];
 
@@ -89,6 +91,9 @@ export default function App() {
         </div>
         <div className={tab === 'match' ? '' : 'hidden'}>
           <MatchSimTerminal onReturnToDesk={() => setTab('squad')} />
+        </div>
+        <div className={tab === 'continental' ? '' : 'hidden'}>
+          <ContinentalCupView />
         </div>
         <div className={tab === 'trophy' ? '' : 'hidden'}>
           <TrophyRoom />

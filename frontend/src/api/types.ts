@@ -70,6 +70,7 @@ export interface LineupSlot {
   player_id: number | null;
   player_name: string | null;
   overall: number | null;
+  potential: number | null;
 }
 
 export interface SquadResponse {
@@ -335,8 +336,72 @@ export interface ConfirmMatchdayResponse {
   match_reward: number;
   match_reward_label: string;
   match_reward_outcome: 'win' | 'draw' | 'loss' | 'none' | string;
+  continental_match_played?: boolean;
+  continental_match_reward?: number;
+  continental_match_reward_label?: string;
+  continental_match_reward_outcome?: 'win' | 'draw' | 'loss' | 'none' | string;
   transfer_budget: number;
   transfer_budget_label: string;
   incoming_bid?: IncomingTransferBid | null;
   development?: DevelopmentUpdateModel[];
+}
+
+export interface ContinentalFixtureModel {
+  matchday: number;
+  league_matchday: number | null;
+  home_id: number;
+  home_name: string;
+  away_id: number;
+  away_name: string;
+  stage: string;
+  group_name: string | null;
+  home_goals: number | null;
+  away_goals: number | null;
+  is_played: boolean;
+}
+
+export interface ContinentalGroupStandingRow {
+  position: number;
+  club_id: number;
+  club_name: string;
+  played: number;
+  won: number;
+  drawn: number;
+  lost: number;
+  goal_difference: number;
+  points: number;
+}
+
+export interface ContinentalGroupModel {
+  group_name: string;
+  standings: ContinentalGroupStandingRow[];
+}
+
+export interface ContinentalBracketMatchModel {
+  matchday: number;
+  stage: string;
+  home_id: number;
+  home_name: string;
+  away_id: number;
+  away_name: string;
+  home_goals: number | null;
+  away_goals: number | null;
+  winner_id: number | null;
+  winner_name: string | null;
+}
+
+export interface ContinentalCupResponse {
+  name: string;
+  season_year: number;
+  active: boolean;
+  phase: string;
+  qualified: boolean;
+  current_matchday: number;
+  total_matchdays: number;
+  champion_club_id: number | null;
+  champion_club_name: string | null;
+  groups: ContinentalGroupModel[];
+  fixtures: ContinentalFixtureModel[];
+  bracket: ContinentalBracketMatchModel[];
+  schedule_anchors: number[];
 }

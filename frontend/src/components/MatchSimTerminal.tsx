@@ -360,15 +360,23 @@ export function MatchSimTerminal({ onReturnToDesk }: MatchSimTerminalProps) {
         throw new ApiError('Server did not commit the matchday.', 500);
       }
 
-      const cashMsg =
+      const leagueCash =
         confirmed.match_reward > 0
-          ? ` Match reward ${confirmed.match_reward_label} credited.`
+          ? ` League reward ${confirmed.match_reward_label}.`
           : '';
-      setConfirmedCashReward(confirmed.match_reward_label);
+      const continentalCash =
+        confirmed.continental_match_played && (confirmed.continental_match_reward ?? 0) > 0
+          ? ` Champions Cup reward ${confirmed.continental_match_reward_label}.`
+          : '';
+      const totalRewardLabel =
+        (confirmed.continental_match_reward ?? 0) > 0
+          ? `${confirmed.match_reward_label} + ${confirmed.continental_match_reward_label}`
+          : confirmed.match_reward_label;
+      setConfirmedCashReward(totalRewardLabel);
       push(
         'success',
         'Matchday confirmed',
-        `Matchweek ${confirmed.matchday} recorded.${cashMsg}`,
+        `Matchweek ${confirmed.matchday} recorded.${leagueCash}${continentalCash}`,
       );
 
       resetTerminalView();

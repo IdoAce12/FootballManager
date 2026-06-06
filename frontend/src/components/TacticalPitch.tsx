@@ -12,6 +12,10 @@ import { formatPlayerStats, ratingBadgeClasses, ratingTextColor } from '@/lib/fo
 import { useGame } from '@/state/GameContext';
 import { useToast } from '@/state/ToastProvider';
 
+type SwapSource =
+  | { kind: 'slot'; index: number }
+  | { kind: 'bench'; playerId: number };
+
 export function TacticalPitch() {
   const { version, invalidate } = useGame();
   const { push } = useToast();
@@ -20,6 +24,7 @@ export function TacticalPitch() {
   const [formation, setFormation] = useState<string>('4-3-3');
   const [assignments, setAssignments] = useState<(number | null)[]>(Array(11).fill(null));
   const [activeSlot, setActiveSlot] = useState<number | null>(null);
+  const [swapSource, setSwapSource] = useState<SwapSource | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [sellingId, setSellingId] = useState<number | null>(null);
@@ -73,6 +78,7 @@ export function TacticalPitch() {
       push('success', 'Lineup saved', 'Starting XI and sector ratings updated.');
       await invalidate();
       setActiveSlot(null);
+      setSwapSource(null);
     } catch (err) {
       push('error', 'Save failed', err instanceof ApiError ? err.message : 'Could not save lineup.');
     } finally {
@@ -80,15 +86,89 @@ export function TacticalPitch() {
     }
   };
 
-  const onSelectPlayer = (playerId: number) => {
-    if (activeSlot === null) return;
-    const next = [...assignments];
-    for (let i = 0; i < next.length; i += 1) {
-      if (next[i] === playerId) next[i] = null;
+  const isSwapSelected = (source: SwapSource) => {
+    if (!swapSource) return false;
+    if (swapSource.kind === 'slot' && source.kind === 'slot') {
+      return swapSource.index === source.index;
     }
-    next[activeSlot] = playerId;
+    if (swapSource.kind === 'bench' && source.kind === 'bench') {
+      return swapSource.playerId === source.playerId;
+    }
+    return false;
+  };
+
+  const applySwap = (source: SwapSource, target: SwapSource) => {
+    const next = [...assignments];
+    const sourcePlayerId = source.kind === 'slot' ? next[source.index] : source.playerId;
+    const targetPlayerId = target.kind === 'slot' ? next[target.index] : target.playerId;
+
+    if (source.kind === 'slot' && target.kind === 'slot') {
+      next[source.index] = targetPlayerId;
+      next[target.index] = sourcePlayerId;
+    } else if (source.kind === 'slot' && target.kind === 'bench') {
+      next[source.index] = target.playerId;
+    } else if (source.kind === 'bench' && target.kind === 'slot') {
+      next[target.index] = source.playerId;
+    } else {
+      return;
+    }
+
     setAssignments(next);
     void saveLineup(formation, next);
+    setSwapSource(null);
+    setActiveSlot(null);
+  };
+
+  const onPitchSlotClick = (slotIdx: number) => {
+    const target: SwapSource = { kind: 'slot', index: slotIdx };
+    if (swapSource) {
+      if (isSwapSelected(target)) {
+        setSwapSource(null);
+        return;
+      }
+      applySwap(swapSource, target);
+      return;
+    }
+
+    if (assignments[slotIdx]) {
+      setSwapSource(target);
+      setActiveSlot(null);
+      return;
+    }
+
+    setActiveSlot(slotIdx);
+  };
+
+  const onRosterPlayerClick = (playerId: number) => {
+    const slotIdx = assignments.findIndex((id) => id === playerId);
+    const target: SwapSource =
+      slotIdx >= 0 ? { kind: 'slot', index: slotIdx } : { kind: 'bench', playerId };
+
+    if (swapSource) {
+      if (isSwapSelected(target)) {
+        setSwapSource(null);
+        return;
+      }
+      applySwap(swapSource, target);
+      return;
+    }
+
+    if (activeSlot !== null) {
+      const next = [...assignments];
+      for (let i = 0; i < next.length; i += 1) {
+        if (next[i] === playerId) next[i] = null;
+      }
+      next[activeSlot] = playerId;
+      setAssignments(next);
+      void saveLineup(formation, next);
+      return;
+    }
+
+    if (slotIdx >= 0) {
+      setSwapSource({ kind: 'slot', index: slotIdx });
+    } else {
+      setSwapSource({ kind: 'bench', playerId });
+    }
   };
 
   const openSellModal = (player: PlayerSummary) => {
@@ -159,7 +239,7 @@ export function TacticalPitch() {
             Tactical Board
           </h2>
           <p className="text-xs text-slate-500">
-            Tap a position to assign a starter — ratings use this XI only.
+            Click a player to select for swap, then click another to switch positions.
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-3">
@@ -203,17 +283,20 @@ export function TacticalPitch() {
               const player = pid ? playerMap.get(pid) : undefined;
               const posLabel = squad?.lineup.find((l) => l.slot_index === slotIdx)?.position ?? '?';
               const isActive = activeSlot === slotIdx;
+              const isSwapPick = isSwapSelected({ kind: 'slot', index: slotIdx });
 
               return (
                 <button
                   key={slotIdx}
                   type="button"
-                  onClick={() => setActiveSlot(slotIdx)}
+                  onClick={() => onPitchSlotClick(slotIdx)}
                   style={{ left: `${node.x}%`, top: `${node.y}%` }}
-                  className={`pitch-node-glow absolute z-10 w-[4.5rem] -translate-x-1/2 -translate-y-1/2 rounded-xl border px-1 py-1.5 text-center transition-all ${
-                    isActive
-                      ? 'border-cyan-400 bg-cyan-500/20 shadow-glow scale-105 animate-pulse'
-                      : 'border-slate-600/80 bg-slate-950/70 hover:border-cyan-500/50 hover:bg-slate-900/80'
+                  className={`pitch-node-glow absolute z-10 w-[4.75rem] -translate-x-1/2 -translate-y-1/2 rounded-xl border px-1 py-1.5 text-center transition-all ${
+                    isSwapPick
+                      ? 'border-amber-400 bg-amber-500/20 shadow-glow scale-105 animate-pulse'
+                      : isActive
+                        ? 'border-cyan-400 bg-cyan-500/20 shadow-glow scale-105 animate-pulse'
+                        : 'border-slate-600/80 bg-slate-950/70 hover:border-cyan-500/50 hover:bg-slate-900/80'
                   }`}
                 >
                   <p className="text-[9px] font-bold uppercase tracking-wider text-emerald-300/90">
@@ -223,10 +306,10 @@ export function TacticalPitch() {
                     {player?.name ?? '—'}
                   </p>
                   {player && (
-                    <p
-                      className={`font-mono text-sm font-extrabold ${ratingTextColor(player.overall)}`}
-                    >
-                      {player.overall}
+                    <p className="font-mono text-[11px] font-extrabold leading-tight">
+                      <span className={ratingTextColor(player.overall)}>{player.overall}</span>
+                      <span className="text-slate-500">/</span>
+                      <span className={ratingTextColor(player.potential)}>{player.potential}</span>
                     </p>
                   )}
                 </button>
@@ -238,47 +321,63 @@ export function TacticalPitch() {
         {/* Slide-over roster picker */}
         <aside
           className={`border-t border-slate-800/80 bg-slate-950/60 lg:border-l lg:border-t-0 ${
-            activeSlot !== null ? 'block' : 'hidden lg:block'
+            activeSlot !== null || swapSource !== null ? 'block' : 'hidden lg:block'
           }`}
         >
           <div className="sticky top-0 border-b border-slate-800/80 bg-slate-900/90 px-4 py-3 backdrop-blur">
             <p className="text-xs font-bold uppercase tracking-widest text-cyan-400">
-              {activeSlot !== null
-                ? `Assign ${squad?.lineup.find((l) => l.slot_index === activeSlot)?.position ?? 'Slot'}`
-                : 'Select a position'}
+              {swapSource
+                ? 'Selected for swap — pick a second player'
+                : activeSlot !== null
+                  ? `Assign ${squad?.lineup.find((l) => l.slot_index === activeSlot)?.position ?? 'Slot'}`
+                  : 'Squad roster'}
             </p>
-            <p className="text-[11px] text-slate-500">Choose from your squad roster</p>
+            <p className="text-[11px] text-slate-500">
+              {swapSource
+                ? 'Pitch or bench — positions swap instantly'
+                : 'Click an empty slot to assign, or select two players to swap'}
+            </p>
           </div>
           <div className="max-h-[480px] overflow-auto p-2">
-            {activeSlot === null ? (
-              <p className="px-3 py-8 text-center text-sm text-slate-600">
-                Click a node on the pitch to open the lineup selector.
-              </p>
-            ) : (
-              squad?.players
-                .slice()
-                .sort((a, b) => b.overall - a.overall)
-                .map((p) => {
-                  const assignedElsewhere = assignments.includes(p.player_id) &&
-                    assignments[activeSlot] !== p.player_id;
-                  return (
-                    <button
-                      key={p.player_id}
-                      type="button"
-                      disabled={assignedElsewhere || saving}
-                      onClick={() => onSelectPlayer(p.player_id)}
-                      className="mb-1 flex w-full items-center justify-between rounded-lg border border-slate-800/60 bg-slate-900/50 px-3 py-2 text-left transition-colors hover:border-cyan-500/40 hover:bg-slate-800/60 disabled:opacity-40"
-                    >
-                      <div>
-                        <p className="text-sm font-semibold text-slate-100">{p.name}</p>
-                        <p className="text-[10px] text-slate-500">
-                          {p.position} · {p.age}y · FIT {Math.round(p.fitness)}
-                        </p>
-                        <p className="mt-0.5 font-mono text-[10px] font-bold text-cyan-400/90">
-                          {formatPlayerStats(p)}
-                        </p>
-                      </div>
-                      <div className="flex flex-col items-end gap-1">
+            {squad?.players
+              .slice()
+              .sort((a, b) => b.overall - a.overall)
+              .map((p) => {
+                const slotIdx = assignments.findIndex((id) => id === p.player_id);
+                const rosterSource: SwapSource =
+                  slotIdx >= 0
+                    ? { kind: 'slot', index: slotIdx }
+                    : { kind: 'bench', playerId: p.player_id };
+                const isSwapPick = isSwapSelected(rosterSource);
+                const assignedElsewhere =
+                  activeSlot !== null &&
+                  assignments.includes(p.player_id) &&
+                  assignments[activeSlot] !== p.player_id;
+
+                return (
+                  <button
+                    key={p.player_id}
+                    type="button"
+                    disabled={(assignedElsewhere && !swapSource) || saving}
+                    onClick={() => onRosterPlayerClick(p.player_id)}
+                    className={`mb-1 flex w-full items-center justify-between rounded-lg border px-3 py-2 text-left transition-colors disabled:opacity-40 ${
+                      isSwapPick
+                        ? 'border-amber-400/70 bg-amber-500/10'
+                        : 'border-slate-800/60 bg-slate-900/50 hover:border-cyan-500/40 hover:bg-slate-800/60'
+                    }`}
+                  >
+                    <div>
+                      <p className="text-sm font-semibold text-slate-100">{p.name}</p>
+                      <p className="text-[10px] text-slate-500">
+                        {p.position} · {p.age}y · FIT {Math.round(p.fitness)}
+                        {slotIdx >= 0 ? ' · XI' : ' · Bench'}
+                      </p>
+                      <p className="mt-0.5 font-mono text-[10px] font-bold text-cyan-400/90">
+                        {formatPlayerStats(p)}
+                      </p>
+                    </div>
+                    <div className="flex flex-col items-end gap-1">
+                      <div className="flex items-center gap-1">
                         <span
                           className={`rounded-md px-2 py-1 font-mono text-sm font-bold ring-1 ${ratingBadgeClasses(
                             p.overall,
@@ -286,22 +385,29 @@ export function TacticalPitch() {
                         >
                           {p.overall}
                         </span>
-                        <button
-                          type="button"
-                          disabled={sellingId === p.player_id || saving}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            openSellModal(p);
-                          }}
-                          className="rounded border border-amber-500/60 bg-amber-500/15 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide text-amber-200 shadow-[0_0_12px_-2px_rgba(251,191,36,0.7)] hover:bg-amber-500/25"
+                        <span
+                          className={`rounded-md px-2 py-1 font-mono text-xs font-bold ring-1 ring-slate-700 ${ratingTextColor(
+                            p.potential,
+                          )}`}
                         >
-                          Sell
-                        </button>
+                          {p.potential}
+                        </span>
                       </div>
-                    </button>
-                  );
-                })
-            )}
+                      <button
+                        type="button"
+                        disabled={sellingId === p.player_id || saving}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          openSellModal(p);
+                        }}
+                        className="rounded border border-amber-500/60 bg-amber-500/15 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide text-amber-200 shadow-[0_0_12px_-2px_rgba(251,191,36,0.7)] hover:bg-amber-500/25"
+                      >
+                        Sell
+                      </button>
+                    </div>
+                  </button>
+                );
+              })}
           </div>
         </aside>
       </div>
@@ -318,6 +424,7 @@ export function TacticalPitch() {
                   <th className="px-3 py-2">Player</th>
                   <th className="px-3 py-2">Pos</th>
                   <th className="px-3 py-2 text-center">OVR</th>
+                  <th className="px-3 py-2 text-center">POT</th>
                   <th className="px-3 py-2 text-center">Stats</th>
                   <th className="px-3 py-2 text-right">Action</th>
                 </tr>
@@ -332,6 +439,9 @@ export function TacticalPitch() {
                       <td className="px-3 py-2 text-slate-400">{p.position}</td>
                       <td className={`px-3 py-2 text-center font-mono font-bold ${ratingTextColor(p.overall)}`}>
                         {p.overall}
+                      </td>
+                      <td className={`px-3 py-2 text-center font-mono font-bold ${ratingTextColor(p.potential)}`}>
+                        {p.potential}
                       </td>
                       <td className="px-3 py-2 text-center font-mono text-cyan-300/90">
                         {formatPlayerStats(p)}

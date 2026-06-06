@@ -69,8 +69,10 @@ export function GameProvider({ children }: { children: ReactNode }) {
   );
   const probed = useRef(false);
 
-  const refreshStatus = useCallback(async () => {
-    setLoading(true);
+  const refreshStatus = useCallback(async (options?: { silent?: boolean }) => {
+    if (!options?.silent) {
+      setLoading(true);
+    }
     try {
       const data = await gameApi.getStatus();
       setStatus(data);
@@ -79,7 +81,9 @@ export function GameProvider({ children }: { children: ReactNode }) {
       const message = err instanceof ApiError ? err.message : 'Failed to load status.';
       setError(message);
     } finally {
-      setLoading(false);
+      if (!options?.silent) {
+        setLoading(false);
+      }
     }
   }, []);
 
@@ -165,6 +169,16 @@ export function GameProvider({ children }: { children: ReactNode }) {
       }
     })();
   }, [refreshStatus, push]);
+
+  // Keep the Render free-tier backend awake while a career is active.
+  useEffect(() => {
+    if (!session?.initialized) return undefined;
+    const HEARTBEAT_MS = 4.5 * 60 * 1000;
+    const id = window.setInterval(() => {
+      void refreshStatus({ silent: true });
+    }, HEARTBEAT_MS);
+    return () => window.clearInterval(id);
+  }, [session?.initialized, refreshStatus]);
 
   const value = useMemo<GameContextValue>(
     () => ({
